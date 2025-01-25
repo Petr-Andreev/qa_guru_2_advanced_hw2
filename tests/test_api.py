@@ -1,7 +1,17 @@
 from http import HTTPStatus
 import pytest
 import requests
-from models.user import User  # Предполагаем, что модель User находится в models/user.py
+from models.user import User
+from tests.test_smoke import get_and_check_response
+
+
+# Вспомогательная функция для проверки полей пользователя
+def check_user_fields(user):
+    assert 'id' in user
+    assert 'email' in user
+    assert 'first_name' in user
+    assert 'last_name' in user
+    assert 'avatar' in user
 
 
 # Тест пагинации с параметризацией
@@ -14,82 +24,66 @@ from models.user import User  # Предполагаем, что модель Us
 def test_users_with_pagination(app_url, page, size):
     url = f"{app_url}/api/users/"
     data = get_and_check_response(url, {"page": page, "size": size})
-
     # Проверка наличия ключей total и items
     assert 'total' in data
     assert 'items' in data
-
     # Проверка количества страниц
-    if 'pages' in data:
-        expected_pages = (data['total'] + size - 1) // size  # Округление вверх
-        assert data['pages'] == expected_pages
-
-    if data['total'] > 0:
-        items = data['items']
-        if page * size >= data['total']:
-            expected_items_count = data['total'] - (page - 1) * size
-        else:
-            expected_items_count = size
-        assert len(items) == expected_items_count
-
-        for user in items:
-            check_user_fields(user)
-
-    # Проверка уникальности данных для разных страниц
-    if page > 1:
-        prev_data = get_and_check_response(url, {"page": page - 1, "size": size})
-        prev_items = prev_data['items'] if 'items' in prev_data else []
-        current_ids = {user['id'] for user in items}
-        prev_ids = {user['id'] for user in prev_items}
-        assert not current_ids.intersection(prev_ids)
+    data_pages = data.get('pages', 0)
+    expected_pages = (data['total'] + size - 1) // size  # Округление вверх
+    assert data_pages == expected_pages
+    # Проверка количества пользователей на странице
+    items = data['items']
+    expected_items_count = data['total'] - (page - 1) * size if page * size >= data['total'] else size
+    assert len(items) == expected_items_count
+    for user in items:
+        check_user_fields(user)
 
 
-# Вспомогательная функция для выполнения GET-запроса и проверки статуса
-def get_and_check_response(url, params=None):
-    response = requests.get(url, params=params)
-    assert response.status_code == HTTPStatus.OK
-    return response.json()
-
-
-# Вспомогательная функция для проверки полей пользователя
-def check_user_fields(user):
-    assert 'id' in user
-    assert 'email' in user
-    assert 'first_name' in user
-    assert 'last_name' in user
-    assert 'avatar' in user
-
-
-# Дополнительный тест для проверки количества страниц
-def test_total_pages(app_url):
+# Тест на разные данные при разных значениях page
+@pytest.mark.parametrize("page1, page2, size", [
+    (1, 2, 5),
+    (2, 3, 5),
+    (1, 2, 10),
+])
+def test_users_different_pages(app_url, page1, page2, size):
     url = f"{app_url}/api/users/"
-    data = get_and_check_response(url)
-    total = data['total']
-
-    for size in [5, 10, 20]:
-        expected_pages = (total + size - 1) // size  # Округление вверх
-        data = get_and_check_response(url, {"size": size})
-        if 'pages' in data:
-            assert data['pages'] == expected_pages
+    data1 = get_and_check_response(url, {"page": page1, "size": size})
+    data2 = get_and_check_response(url, {"page": page2, "size": size})
+    items1 = data1.get('items', [])
+    items2 = data2.get('items', [])
+    assert items1 != items2
 
 
+# Тест для проверки уникальности данных
 def test_users_no_duplicates(app_url):
     url = f"{app_url}/api/users/"
-    response = requests.get(url)
-    assert response.status_code == HTTPStatus.OK
-    data = response.json()
-    users_list = data['items'] if 'items' in data else []
+    data = get_and_check_response(url)
+    users_list = data.get('items', [])
     users_ids = [user["id"] for user in users_list]
     assert len(users_ids) == len(set(users_ids))
 
 
+# Дополнительный тест для проверки количества страниц с параметризацией size
+@pytest.mark.parametrize("size", [5, 10, 20])
+def test_total_pages(app_url, size):
+    url = f"{app_url}/api/users/"
+    data = get_and_check_response(url)
+    total = data['total']
+    expected_pages = (total + size - 1) // size  # Округление вверх
+    data = get_and_check_response(url, {"size": size})
+    data_pages = data.get('pages', 0)
+    assert data_pages == expected_pages
+
+
+# Тест на соответствие response модели pydantic
 @pytest.mark.parametrize("user_id", [1, 6, 12])
 def test_user(app_url, user_id):
     url = f"{app_url}/api/users/{user_id}"
     data = get_and_check_response(url)
-    User(**data)
+    User.model_validate(data)
 
 
+# Проверка на несуществующего пользователя
 @pytest.mark.parametrize("user_id", [13])
 def test_user_nonexistent_values(app_url, user_id):
     url = f"{app_url}/api/users/{user_id}"
@@ -97,6 +91,7 @@ def test_user_nonexistent_values(app_url, user_id):
     assert response.status_code == HTTPStatus.NOT_FOUND
 
 
+# Проверка на некорректный ввод user_id
 @pytest.mark.parametrize("user_id", [-1, 0, "fafaf"])
 def test_user_invalid_values(app_url, user_id):
     url = f"{app_url}/api/users/{user_id}"
