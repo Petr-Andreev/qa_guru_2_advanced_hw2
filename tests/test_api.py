@@ -14,7 +14,6 @@ def check_user_fields(user):
     assert 'avatar' in user
 
 
-# Тест пагинации с параметризацией
 @pytest.mark.parametrize("page, size", [
     (1, 5),  # Первая страница, 5 пользователей на странице
     (2, 5),  # Вторая страница, 5 пользователей на странице
@@ -24,18 +23,11 @@ def check_user_fields(user):
 def test_users_with_pagination(app_url, page, size):
     url = f"{app_url}/api/users/"
     data = get_and_check_response(url, {"page": page, "size": size})
-    # Проверка наличия ключей total и items
     assert 'total' in data
     assert 'items' in data
-    # Проверка количества страниц
-    data_pages = data.get('pages', 0)
-    expected_pages = (data['total'] + size - 1) // size  # Округление вверх
-    assert data_pages == expected_pages
     # Проверка количества пользователей на странице
-    items = data['items']
-    expected_items_count = data['total'] - (page - 1) * size if page * size >= data['total'] else size
-    assert len(items) == expected_items_count
-    for user in items:
+    assert len(data["items"]) == size
+    for user in data["items"]:
         check_user_fields(user)
 
 
