@@ -1,15 +1,14 @@
 import os
+
 import dotenv
 import pytest
 
 
-# Загрузка переменных окружения из файла .env
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def envs():
     dotenv.load_dotenv()
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def app_url():
-    url = os.getenv("APP_URL")
-    return url
+    return os.getenv("APP_URL")
